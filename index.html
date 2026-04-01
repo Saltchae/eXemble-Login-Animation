@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>eXemble 3D Chrome Symbol</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; overflow: hidden; cursor: grab; }
+  body:active { cursor: grabbing; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { SVGLoader } from 'three/addons/loaders/SVGLoader.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000000);
+
+const camera = new THREE.PerspectiveCamera(32, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 0, 16);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+// Subtle bloom - just for soft edge glow, not disco
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  0.35, 0.6, 0.9
+);
+composer.addPass(bloomPass);
+composer.addPass(new OutputPass());
+
+// Rotation only
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.enableZoom = false;
+controls.enablePan = false;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.4;
+
+// Custom smooth gradient environment - NO point sources, just soft bands
+// This is key for realistic chrome: smooth continuous gradients, not dots
+function createSmoothChromeEnv() {
+  const width = 1024, height = 512;
+  const data = new Float32Array(width * height * 4);
+
+  for (let y = 0; y < height; y++) {
+    const v = y / height; // 0 = top, 1 = bottom
+    for (let x = 0; x < width; x++) {
+      const u = x / width;
+      const idx = (y * width + x) * 4;
+
+      // Base: very dark
+      let r = 0.002, g = 0.002, b = 0.002;
+
+      // Smooth soft gradient bands (like large softboxes) - monochrome
+      // Top softbox - bright white, wide and soft
+      const topBand = Math.exp(-Math.pow((v - 0.1) / 0.06, 2));
+      const topVal = topBand * 3.5;
+      r += topVal; g += topVal; b += topVal;
+
+      // Upper-mid subtle fill
+      const midBand1 = Math.exp(-Math.pow((v - 0.3) / 0.08, 2));
+      const midVal = midBand1 * 0.5;
+      r += midVal; g += midVal; b += midVal;
+
+      // Center - very subtle ambient
+      const centerBand = Math.exp(-Math.pow((v - 0.5) / 0.15, 2));
+      const cenVal = centerBand * 0.1;
+      r += cenVal; g += cenVal; b += cenVal;
+
+      // Lower softbox - neutral white
+      const bottomBand = Math.exp(-Math.pow((v - 0.88) / 0.05, 2));
+      const botVal = bottomBand * 2.0;
+      r += botVal; g += botVal; b += botVal;
+
+      // Side gradient accents (left and right soft strips)
+      const leftStrip = Math.exp(-Math.pow((u - 0.15) / 0.04, 2)) * Math.exp(-Math.pow((v - 0.5) / 0.3, 2));
+      const lVal = leftStrip * 0.8;
+      r += lVal; g += lVal; b += lVal;
+
+      const rightStrip = Math.exp(-Math.pow((u - 0.85) / 0.04, 2)) * Math.exp(-Math.pow((v - 0.5) / 0.3, 2));
+      const rVal = rightStrip * 0.7;
+      r += rVal; g += rVal; b += rVal;
+
+      data[idx] = r;
+      data[idx + 1] = g;
+      data[idx + 2] = b;
+      data[idx + 3] = 1.0;
+    }
+  }
+
+  const tex = new THREE.DataTexture(data, width, height, THREE.RGBAFormat, THREE.FloatType);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.needsUpdate = true;
+
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  pmrem.compileEquirectangularShader();
+  const envMap = pmrem.fromEquirectangular(tex).texture;
+  tex.dispose();
+  pmrem.dispose();
+  return envMap;
+}
+
+const envMap = createSmoothChromeEnv();
+scene.environment = envMap;
+
+// SVG
+const svgString = `<svg width="128" height="102" viewBox="0 0 128 102" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0_2283_54)">
+<path d="M128.002 41.6823H99.1511C86.4882 41.6823 73.6846 54.0114 73.6846 65.9182V96H54.8571V65.9036C54.8571 63.8825 55.7038 61.952 57.1968 60.5362L93.3966 26.2041C95.0642 24.6227 97.317 23.7409 99.6571 23.7409H128.002V41.6823Z" fill="#222222"/>
+<path d="M73.1447 32.0137C73.1447 34.2711 72.1989 36.427 70.5303 38.0101L34.6053 72.0818C32.9376 73.6631 30.6848 74.5449 28.3447 74.5449H0V56.6034H28.8509C41.5136 56.6034 54.3173 44.2743 54.3173 32.3671V2.28572H73.1447V32.0137Z" fill="#222222"/>
+</g>
+</svg>`;
+
+const loader = new SVGLoader();
+const svgData = loader.parse(svgString);
+
+// Dark chrome material - body is nearly black, edges catch light
+const darkChromeMaterial = new THREE.MeshPhysicalMaterial({
+  color: new THREE.Color(0x050508),
+  metalness: 1.0,
+  roughness: 0.12,
+  envMap: envMap,
+  envMapIntensity: 2.5,
+  clearcoat: 0.8,
+  clearcoatRoughness: 0.05,
+  reflectivity: 1.0,
+  side: THREE.DoubleSide,
+});
+
+const extrudeDepth = 3.0;
+const bevelSize = 0.7;
+const innerGroup = new THREE.Group();
+
+svgData.paths.forEach((path) => {
+  const shapes = SVGLoader.createShapes(path);
+  shapes.forEach((shape) => {
+    const geometry = new THREE.ExtrudeGeometry(shape, {
+      depth: extrudeDepth,
+      bevelEnabled: true,
+      bevelThickness: bevelSize,
+      bevelSize: bevelSize,
+      bevelSegments: 24,
+      curveSegments: 48,
+    });
+    geometry.computeVertexNormals();
+    innerGroup.add(new THREE.Mesh(geometry, darkChromeMaterial));
+  });
+});
+
+// Center
+const tempBox = new THREE.Box3().setFromObject(innerGroup);
+const tempCenter = tempBox.getCenter(new THREE.Vector3());
+const tempSize = tempBox.getSize(new THREE.Vector3());
+const maxDim = Math.max(tempSize.x, tempSize.y, tempSize.z);
+const scaleFactor = 6 / maxDim;
+
+innerGroup.children.forEach(child => {
+  child.geometry.translate(-tempCenter.x, -tempCenter.y, -tempCenter.z);
+});
+
+const group = new THREE.Group();
+group.add(innerGroup);
+group.scale.set(scaleFactor, -scaleFactor, scaleFactor);
+scene.add(group);
+
+// Minimal lighting - let the environment map do the heavy lifting
+// Just a very subtle fill so faces aren't 100% black
+scene.add(new THREE.AmbientLight(0x050505, 0.15));
+
+// Soft directional fill from front-top (very dim)
+const fillLight = new THREE.DirectionalLight(0x999999, 0.3);
+fillLight.position.set(0, 3, 8);
+scene.add(fillLight);
+
+// Animation - no moving lights, just smooth rotation
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  composer.render();
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
